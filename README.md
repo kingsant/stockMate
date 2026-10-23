@@ -143,9 +143,3 @@ usAAPL
 ```bash
 ./gradlew runIde
 ```
-
-## 项目来源
-
-项目基于 [leeks](https://github.com/huage2580/leeks) 改造，保留股票行情功能，并增加自选管理、单股提醒和多项目共享刷新。
-
-sMate 原名 uka。内部插件 ID 保留为 `com.jpc.uka`，升级后可继续使用已有自选和提醒配置。
