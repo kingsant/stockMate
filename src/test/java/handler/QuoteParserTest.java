@@ -8,6 +8,14 @@ import java.util.Map;
 import static org.junit.Assert.*;
 
 public class QuoteParserTest {
+    @Test(expected = IllegalArgumentException.class)
+    public void rejectsStockUnavailableFromSelectedProvider() {
+        List<StockBean> quotes = QuoteParser.sina("var hq_str_hk00700=\"\";",
+                Map.of("hk00700", new String[]{"hk00700"}));
+
+        QuoteParser.validate(List.of("hk00700"), quotes);
+    }
+
     @Test
     public void normalizesSinaDateAndTimeForAlerts() {
         String[] fields = new String[32];

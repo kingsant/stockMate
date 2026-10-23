@@ -5,6 +5,11 @@ import java.util.List;
 import static org.junit.Assert.*;
 
 public class StockCodesTest {
+    @Test(expected = IllegalArgumentException.class)
+    public void rejectsInvalidExistingListInsteadOfTreatingItAsEmpty() {
+        StockCodes.parse("sh600519;badcode;sz000001");
+    }
+
     @Test
     public void normalizesAndDeduplicatesMarkets() {
         assertEquals("usAAPL", StockCodes.normalize("usaapl"));

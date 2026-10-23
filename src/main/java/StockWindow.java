@@ -52,6 +52,7 @@ public class StockWindow {
 
     static JBTable table;
     static JLabel refreshTimeLabel;
+    private static AnActionButton pauseAction;
 
     public JPanel getmPanel() {
         return mPanel;
@@ -123,7 +124,13 @@ public class StockWindow {
                         JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) {
                     return;
                 }
-                List<String> entries = loadStocks();
+                List<String> entries;
+                try {
+                    entries = StockCodes.parse(PropertiesComponent.getInstance().getValue("key_stocks"));
+                } catch (IllegalArgumentException e) {
+                    JOptionPane.showMessageDialog(table, e.getMessage(), "无法删除", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
                 for (int i = entries.size() - 1; i >= 0; i--) {
                     if (StockCodes.codeOf(entries.get(i)).equals(code)) {
                         entries.remove(i);
@@ -183,12 +190,13 @@ public class StockWindow {
         final String code;
         try {
             code = StockCodes.normalize(input);
-            StockCodes.replace(loadStocks(), oldCode, code);
+            StockCodes.replace(StockCodes.parse(PropertiesComponent.getInstance().getValue("key_stocks")), oldCode, code);
         } catch (IllegalArgumentException e) {
             JOptionPane.showMessageDialog(table, e.getMessage(), "无法保存", JOptionPane.ERROR_MESSAGE);
             return;
         }
         StockRefreshHandler editingHandler = handler;
+        boolean useSina = PropertiesComponent.getInstance().getBoolean("key_stocks_sina");
         String originalConfig = PropertiesComponent.getInstance().getValue("key_stocks");
         refreshTimeLabel.setText("正在校验 " + code);
         ApplicationManager.getApplication().executeOnPooledThread(new Runnable() {
@@ -196,11 +204,14 @@ public class StockWindow {
             public void run() {
                 String failure = null;
                 try {
-                    String response = HttpClientPool.getHttpClient().get("https://qt.gtimg.cn/q=" + code);
+                    String url = useSina ? "https://hq.sinajs.cn/list=" : "https://qt.gtimg.cn/q=";
+                    String response = HttpClientPool.getHttpClient().get(url + code);
                     HashMap<String, String[]> codes = new HashMap<>();
                     codes.put(code, new String[]{code});
-                    if (QuoteParser.tencent(response, codes).isEmpty()) {
-                        throw new IllegalArgumentException("未查询到该股票，请检查代码");
+                    if (useSina) {
+                        QuoteParser.validate(List.of(code), QuoteParser.sina(response, codes));
+                    } else {
+                        QuoteParser.validate(List.of(code), QuoteParser.tencent(response, codes));
                     }
                 } catch (Exception e) {
                     failure = "校验失败：" + e.getMessage();
@@ -222,7 +233,8 @@ public class StockWindow {
                             return;
                         }
                         try {
-                            List<String> entries = StockCodes.replace(loadStocks(), oldCode, code);
+                            List<String> entries = StockCodes.replace(
+                                    StockCodes.parse(PropertiesComponent.getInstance().getValue("key_stocks")), oldCode, code);
                             PropertiesComponent.getInstance().setValue("key_stocks", String.join(";\n", entries));
                             if (oldCode != null && !oldCode.equals(code)) {
                                 AlertManager.remove(oldCode);
@@ -245,11 +257,10 @@ public class StockWindow {
         }
         handler = factoryHandler();
 
-        AnActionButton refreshAction = new AnActionButton("停止刷新当前表格数据", AllIcons.Actions.Pause) {
+        pauseAction = new AnActionButton("停止刷新当前表格数据", AllIcons.Actions.Pause) {
             @Override
             public void actionPerformed(@NotNull AnActionEvent e) {
                 stop();
-                this.setEnabled(false);
             }
         };
         ToolbarDecorator toolbarDecorator = ToolbarDecorator.createDecorator(table)
@@ -263,10 +274,9 @@ public class StockWindow {
                     @Override
                     public void actionPerformed(@NotNull AnActionEvent e) {
                         refresh();
-                        refreshAction.setEnabled(true);
                     }
                 })
-                .addExtraAction(refreshAction)
+                .addExtraAction(pauseAction)
                 .setToolbarPosition(ActionToolbarPosition.TOP);
         JPanel toolPanel = toolbarDecorator.createPanel();
         toolbarDecorator.getActionsPanel().add(refreshTimeLabel, BorderLayout.EAST);
@@ -303,6 +313,7 @@ public class StockWindow {
                 stop(); //如果没有数据则不需要启动时钟任务浪费资源
             } else {
                 handler.resume();
+                pauseAction.setEnabled(true);
                 handler.handle(codes);
                 QuartzManager quartzManager = QuartzManager.getInstance(NAME);
                 HashMap<String, Object> dataMap = new HashMap<>();
@@ -321,6 +332,9 @@ public class StockWindow {
         QuartzManager.getInstance(NAME).stopJob();
         if (handler != null) {
             handler.stopHandle();
+        }
+        if (pauseAction != null) {
+            pauseAction.setEnabled(false);
         }
     }
 
