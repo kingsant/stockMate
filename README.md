@@ -12,7 +12,7 @@ IDE 中的股票行情小助手。批量管理自选、用拼音搜索股票、�
 
 当前插件面向 IntelliJ IDEA 2026.1 及以上平台版本，最低平台构建号为 `261`。
 
-1. 准备插件安装包 `build/distributions/sMate-1.0-SNAPSHOT.zip`。
+1. 下载仓库中的 [sMate 安装包](distribution/sMate-1.0-SNAPSHOT.zip)，或使用本地构建的 `build/distributions/sMate-1.0-SNAPSHOT.zip`。
 2. 打开 IDE 的 **Settings → Plugins**。
 3. 点击齿轮菜单，选择 **Install Plugin from Disk…**，选中 ZIP 文件。
 4. 按 IDE 提示重启，在底部工具窗口打开 **sMate**。
