@@ -8,18 +8,19 @@ import org.jetbrains.annotations.Nullable;
 import quartz.QuartzManager;
 import utils.HttpClientPool;
 import utils.LogUtil;
+import watchlist.StockCodes;
 
-import javax.swing.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
+import javax.swing.*;
 
 public class SettingsWindow  implements Configurable {
     private JPanel panel1;
+    private String originalStockText;
     private JTextArea textAreaStock;
     private JCheckBox checkbox;
     /**
@@ -46,6 +47,7 @@ public class SettingsWindow  implements Configurable {
         String value_stock = instance.getValue("key_stocks");
         boolean value_color = instance.getBoolean("key_colorful");
         textAreaStock.setText(value_stock);
+        originalStockText = textAreaStock.getText();
         checkbox.setSelected(!value_color);
         checkBoxTableStriped.setSelected(instance.getBoolean("key_table_striped"));
         checkboxSina.setSelected(instance.getBoolean("key_stocks_sina"));
@@ -76,7 +78,10 @@ public class SettingsWindow  implements Configurable {
             throw new ConfigurationException(errorMsg);
         }
         PropertiesComponent instance = PropertiesComponent.getInstance();
-        instance.setValue("key_stocks", textAreaStock.getText());
+        if (!textAreaStock.getText().equals(originalStockText)) {
+            instance.setValue("key_stocks", String.join(";\n", StockCodes.parse(textAreaStock.getText())));
+            originalStockText = textAreaStock.getText();
+        }
         instance.setValue("key_colorful",!checkbox.isSelected());
         instance.setValue("key_cron_expression_stock", cronExpressionStock.getText());
         instance.setValue("key_table_striped", checkBoxTableStriped.isSelected());
@@ -122,6 +127,9 @@ public class SettingsWindow  implements Configurable {
     }
 
     public static List<String> getConfigList(String key) {
+        if ("key_stocks".equals(key)) {
+            return StockCodes.parse(PropertiesComponent.getInstance().getValue(key));
+        }
         String value = PropertiesComponent.getInstance().getValue(key);
         if (Strings.isEmpty(value)) {
             return new ArrayList<>();
@@ -148,15 +156,16 @@ public class SettingsWindow  implements Configurable {
      * @return 返回提示的错误信息
      */
     private String checkConfig() {
-        StringBuilder errorMsg = new StringBuilder();
-        errorMsg.append(getConfigList(cronExpressionStock.getText(), ";").stream().map(s -> {
-            if (!QuartzManager.checkCronExpression(s)) {
-                return "Stock请配置正确的cron表达式[" + s + "]、";
-            } else {
-                return "";
+        for (String expression : cronExpressionStock.getText().split(";", -1)) {
+            if (!QuartzManager.checkCronExpression(expression.trim())) {
+                return "请配置正确的股票刷新 cron 表达式";
             }
-        }).collect(Collectors.joining()));
-
-        return errorMsg.toString();
+        }
+        try {
+            StockCodes.parse(textAreaStock.getText());
+        } catch (IllegalArgumentException e) {
+            return e.getMessage();
+        }
+        return "";
     }
 }

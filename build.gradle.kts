@@ -20,6 +20,7 @@ repositories {
 }
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
     intellijPlatform {
         // Resolve the platform SDK from the locally installed IntelliJ IDEA 2026.1.
         local("/Applications/IntelliJ IDEA.app/Contents")

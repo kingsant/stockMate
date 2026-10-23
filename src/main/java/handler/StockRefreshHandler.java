@@ -3,9 +3,7 @@ package handler;
 import alert.AlertManager;
 import bean.StockBean;
 import com.intellij.ide.util.PropertiesComponent;
-import com.intellij.notification.Notification;
-import com.intellij.notification.NotificationType;
-import com.intellij.notification.Notifications;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.table.JBTable;
 import com.jgoodies.common.base.Strings;
@@ -14,13 +12,25 @@ import org.apache.commons.lang.math.NumberUtils;
 import utils.PinYinUtils;
 import utils.WindowUtils;
 
-import javax.swing.*;
+import java.awt.Color;
+import java.awt.Component;
+import java.awt.FontMetrics;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Objects;
+import java.util.Vector;
+import javax.swing.JLabel;
+import javax.swing.JTable;
+import javax.swing.SwingUtilities;
+import javax.swing.Timer;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableRowSorter;
-import java.awt.*;
-import java.util.List;
-import java.util.*;
 
 public abstract class StockRefreshHandler extends DefaultTableModel {
     private static String[] columnNames;
@@ -31,6 +41,14 @@ public abstract class StockRefreshHandler extends DefaultTableModel {
 
     private JTable table;
     private boolean colorful = true;
+    private final JLabel statusLabel;
+    private final RefreshStatus status = new RefreshStatus();
+    private final Timer statusTimer;
+    private long generation;
+    private boolean paused = true;
+    private boolean disposed;
+    private boolean loading;
+    private List<String> activeCodes = new ArrayList<>();
 
     static {
         PropertiesComponent instance = PropertiesComponent.getInstance();
@@ -55,7 +73,8 @@ public abstract class StockRefreshHandler extends DefaultTableModel {
         }
     }
 
-    public StockRefreshHandler(JTable table) {
+    public StockRefreshHandler(JTable table, JLabel statusLabel) {
+        this.statusLabel = statusLabel;
         this.table = table;
         table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
         // Fix tree row height
@@ -63,6 +82,13 @@ public abstract class StockRefreshHandler extends DefaultTableModel {
         table.setRowHeight(Math.max(table.getRowHeight(), metrics.getHeight()));
         table.setModel(this);
         refreshColorful(!colorful);
+        statusTimer = new Timer(1000, new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent event) {
+                showStatus();
+            }
+        });
+        statusTimer.start();
     }
 
     public void refreshColorful(boolean colorful) {
@@ -77,13 +103,20 @@ public abstract class StockRefreshHandler extends DefaultTableModel {
             setColumnIdentifiers(PinYinUtils.toPinYin(columnNames));
         }
         TableRowSorter<DefaultTableModel> rowSorter = new TableRowSorter<>(this);
-        Comparator<Object> doubleComparator = (o1, o2) -> {
-            Double v1 = NumberUtils.toDouble(StringUtils.remove((String) o1, '%'));
-            Double v2 = NumberUtils.toDouble(StringUtils.remove((String) o2, '%'));
-            return v1.compareTo(v2);
+        Comparator<Object> doubleComparator = new Comparator<>() {
+            @Override
+            public int compare(Object first, Object second) {
+                Double firstValue = NumberUtils.toDouble(StringUtils.remove(String.valueOf(first), '%'));
+                Double secondValue = NumberUtils.toDouble(StringUtils.remove(String.valueOf(second), '%'));
+                return firstValue.compareTo(secondValue);
+            }
         };
-        Arrays.stream("当前价,涨跌,涨跌幅,最高价,最低价".split(",")).map(name -> WindowUtils.getColumnIndexByName(columnNames, name))
-                .filter(index -> index >= 0).forEach(index -> rowSorter.setComparator(index, doubleComparator));
+        for (String name : new String[]{"当前价", "涨跌", "涨跌幅", "最高价", "最低价"}) {
+            int index = WindowUtils.getColumnIndexByName(columnNames, name);
+            if (index >= 0) {
+                rowSorter.setComparator(index, doubleComparator);
+            }
+        }
         table.setRowSorter(rowSorter);
         columnColors(colorful);
     }
@@ -93,7 +126,84 @@ public abstract class StockRefreshHandler extends DefaultTableModel {
      *
      * @param code
      */
-    public abstract void handle(List<String> code);
+    public final void handle(List<String> codes) {
+        List<String> requestCodes = new ArrayList<>(codes);
+        SwingUtilities.invokeLater(new Runnable() {
+            @Override
+            public void run() {
+                if (disposed || paused || loading || !activeCodes.equals(requestCodes)) {
+                    return;
+                }
+                loading = true;
+                long requestGeneration = generation;
+                showStatus();
+                ApplicationManager.getApplication().executeOnPooledThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        List<StockBean> result = null;
+                        String failure = null;
+                        LocalDateTime oldest = null;
+                        try {
+                            result = fetch(requestCodes);
+                            oldest = QuoteParser.validate(requestCodes, result);
+                        } catch (Exception e) {
+                            failure = e.getMessage();
+                            if (failure == null || failure.isBlank()) {
+                                failure = e.getClass().getSimpleName();
+                            }
+                        }
+                        List<StockBean> quotes = result;
+                        String error = failure;
+                        LocalDateTime oldestQuote = oldest;
+                        SwingUtilities.invokeLater(new Runnable() {
+                            @Override
+                            public void run() {
+                                if (disposed || paused || requestGeneration != generation) {
+                                    return;
+                                }
+                                loading = false;
+                                if (error != null) {
+                                    status.fail(error);
+                                } else {
+                                    for (StockBean quote : quotes) {
+                                        updateData(quote);
+                                    }
+                                    status.succeed(LocalDateTime.now(ZoneId.of("Asia/Shanghai")), oldestQuote);
+                                }
+                                showStatus();
+                            }
+                        });
+                    }
+                });
+            }
+        });
+    }
+
+    protected abstract List<StockBean> fetch(List<String> codes) throws Exception;
+
+    public final void resume() {
+        paused = false;
+        showStatus();
+    }
+
+    public final void dispose() {
+        stopHandle();
+        disposed = true;
+        statusTimer.stop();
+    }
+
+    private void showStatus() {
+        String text = status.describe(LocalDateTime.now(ZoneId.of("Asia/Shanghai")));
+        if (activeCodes.isEmpty()) {
+            text = "暂无自选股";
+        } else if (paused) {
+            text = "已暂停 | " + text;
+        } else if (loading) {
+            text = "刷新中 | " + text;
+        }
+        statusLabel.setText(text);
+        statusLabel.setToolTipText(text + "；点击刷新按钮重试；60 秒未更新标记过期");
+    }
 
     /**
      * 设置表格条纹（斑马线）<br>
@@ -110,6 +220,7 @@ public abstract class StockRefreshHandler extends DefaultTableModel {
     }
 
     public void setupTable(List<String> code) {
+        activeCodes = new ArrayList<>(code);
         for (String s : code) {
             updateData(new StockBean(s));
         }
@@ -118,7 +229,12 @@ public abstract class StockRefreshHandler extends DefaultTableModel {
     /**
      * 停止从网络更新数据
      */
-    public abstract void stopHandle();
+    public final void stopHandle() {
+        paused = true;
+        generation++;
+        loading = false;
+        showStatus();
+    }
 
     private void columnColors(boolean colorful) {
         DefaultTableCellRenderer cellRenderer = new DefaultTableCellRenderer() {

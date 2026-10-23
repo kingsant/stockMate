@@ -7,13 +7,12 @@ import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.client.methods.HttpRequestBase;
-import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
 import org.apache.http.util.EntityUtils;
 
-import java.net.URLDecoder;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.TimeUnit;
 
@@ -43,43 +42,49 @@ public class HttpClientPool {
         buildHttpClient(null);
     }
 
-    public void buildHttpClient(String proxyStr){
+    public void buildHttpClient(String proxyStr) {
         PoolingHttpClientConnectionManager connectionManager = new PoolingHttpClientConnectionManager(100, TimeUnit.SECONDS);
         connectionManager.setMaxTotal(200);// 连接池
         connectionManager.setDefaultMaxPerRoute(100);// 每条通道的并发连接数
-        RequestConfig requestConfig = RequestConfig.custom().setConnectionRequestTimeout(2000).setSocketTimeout(2000).build();
+        RequestConfig requestConfig = RequestConfig.custom().setConnectTimeout(2000).setConnectionRequestTimeout(2000).setSocketTimeout(2000).build();
         HttpClientBuilder httpClientBuilder = HttpClients.custom().setConnectionManager(connectionManager);
-        if (proxyStr!=null && !proxyStr.isEmpty()){
+        if (proxyStr != null && !proxyStr.isEmpty()) {
             String[] s = proxyStr.split(":");
-            if (s.length == 2){
+            if (s.length == 2) {
                 String host = s[0];
                 int port = Integer.parseInt(s[1]);
                 httpClientBuilder.setProxy(new HttpHost(host,port));
             }
             LogUtil.info("uka setup proxy success->"+proxyStr);
         }
-        httpClient =httpClientBuilder.setDefaultRequestConfig(requestConfig).build();
+        httpClient = httpClientBuilder.setDefaultRequestConfig(requestConfig).build();
     }
 
     public String get(String url) throws Exception {
         HttpGet httpGet = new HttpGet(url);
-        return getResponseContent(url,httpGet);
+        return getResponseContent(httpGet);
     }
 
     public String post(String url) throws Exception {
         HttpPost httpPost = new HttpPost(url);
-        return getResponseContent(url, httpPost);
+        return getResponseContent(httpPost);
     }
 
-    private String getResponseContent(String url, HttpRequestBase request) throws Exception {
+    private String getResponseContent(HttpRequestBase request) throws Exception {
         HttpResponse response = null;
         try {
+            if ("hq.sinajs.cn".equalsIgnoreCase(request.getURI().getHost())) {
+                request.setHeader("Referer", "https://finance.sina.com.cn/");
+            }
             response = httpClient.execute(request);
+            if (response.getStatusLine().getStatusCode() != 200) {
+                throw new IOException("HTTP " + response.getStatusLine().getStatusCode());
+            }
             return EntityUtils.toString(response.getEntity(), StandardCharsets.UTF_8);
         } catch (Exception e) {
-            throw new Exception("got an error from HTTP for url : " + URLDecoder.decode(url, "UTF-8"),e);
+            throw new Exception("行情请求失败：" + e.getMessage(), e);
         } finally {
-            if(response != null){
+            if (response != null) {
                 EntityUtils.consumeQuietly(response.getEntity());
             }
             request.releaseConnection();

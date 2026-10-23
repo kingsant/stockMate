@@ -1,38 +1,48 @@
+import alert.AlertManager;
+import alert.StockAlertRule;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.openapi.actionSystem.ActionToolbarPosition;
 import com.intellij.openapi.actionSystem.AnActionEvent;
-import com.intellij.openapi.ui.popup.JBPopupFactory;
-import com.intellij.openapi.ui.popup.PopupStep;
-import com.intellij.openapi.ui.popup.util.BaseListPopupStep;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.ui.AnActionButton;
 import com.intellij.ui.ToolbarDecorator;
-import com.intellij.ui.awt.RelativePoint;
 import com.intellij.ui.table.JBTable;
 import com.jgoodies.common.base.Strings;
+import common.Consts;
+import handler.QuoteParser;
 import handler.SinaStockHandler;
 import handler.StockRefreshHandler;
 import handler.TencentStockHandler;
 import org.apache.commons.collections.CollectionUtils;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 import quartz.HandlerJob;
 import quartz.QuartzManager;
+import utils.HttpClientPool;
 import utils.LogUtil;
 import utils.PopupsUiUtil;
 import utils.WindowUtils;
+import watchlist.StockCodes;
 
-import javax.swing.*;
+import javax.swing.JLabel;
+import javax.swing.JMenuItem;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
+import javax.swing.SwingUtilities;
 import javax.swing.border.EmptyBorder;
-import java.awt.*;
+import java.awt.BorderLayout;
+import java.awt.Point;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseMotionAdapter;
 import java.net.MalformedURLException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Objects;
 
 public class StockWindow {
     public static final String NAME = "sk";
@@ -71,39 +81,158 @@ public class StockWindow {
         });
         table.addMouseListener(new MouseAdapter() {
             @Override
-            public void mousePressed(MouseEvent e) {
-                if (table.getSelectedRow() < 0)
+            public void mousePressed(MouseEvent event) {
+                int row = table.rowAtPoint(event.getPoint());
+                if (row < 0 || handler == null) {
                     return;
-                String code = String.valueOf(table.getModel().getValueAt(table.convertRowIndexToModel(table.getSelectedRow()), handler.codeColumnIndex));//FIX 移动列导致的BUG
-                if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() > 1) {
-                    // 鼠标左键双击
-                    try {
-                        PopupsUiUtil.showImageByStockCode(code, PopupsUiUtil.StockShowType.min, new Point(e.getXOnScreen(), e.getYOnScreen()));
-                    } catch (MalformedURLException ex) {
-                        ex.printStackTrace();
-                        LogUtil.info(ex.getMessage());
-                    }
-                } else if (SwingUtilities.isRightMouseButton(e)) {
-                    //鼠标右键
-                    JBPopupFactory.getInstance().createListPopup(new BaseListPopupStep<PopupsUiUtil.StockShowType>("",
-                            PopupsUiUtil.StockShowType.values()) {
-                        @Override
-                        public @NotNull String getTextFor(PopupsUiUtil.StockShowType value) {
-                            return value.getDesc();
-                        }
-
-                        @Override
-                        public @Nullable PopupStep onChosen(PopupsUiUtil.StockShowType selectedValue, boolean finalChoice) {
-                            try {
-                                PopupsUiUtil.showImageByStockCode(code, selectedValue, new Point(e.getXOnScreen(), e.getYOnScreen()));
-                            } catch (MalformedURLException ex) {
-                                ex.printStackTrace();
-                                LogUtil.info(ex.getMessage());
-                            }
-                            return super.onChosen(selectedValue, finalChoice);
-                        }
-                    }).show(RelativePoint.fromScreen(new Point(e.getXOnScreen(), e.getYOnScreen())));
                 }
+                table.setRowSelectionInterval(row, row);
+                String code = String.valueOf(table.getModel().getValueAt(table.convertRowIndexToModel(row), handler.codeColumnIndex));
+                if (SwingUtilities.isLeftMouseButton(event) && event.getClickCount() > 1) {
+                    showChart(code, PopupsUiUtil.StockShowType.min, event);
+                } else if (SwingUtilities.isRightMouseButton(event)) {
+                    showMenu(code, event);
+                }
+            }
+        });
+    }
+
+    private static void showChart(String code, PopupsUiUtil.StockShowType type, MouseEvent event) {
+        try {
+            PopupsUiUtil.showImageByStockCode(code, type, new Point(event.getXOnScreen(), event.getYOnScreen()));
+        } catch (MalformedURLException e) {
+            LogUtil.info(e.getMessage());
+        }
+    }
+
+    private static void showMenu(String code, MouseEvent event) {
+        JPopupMenu menu = new JPopupMenu();
+        JMenuItem edit = new JMenuItem("编辑股票代码");
+        edit.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent action) {
+                editStock(code);
+            }
+        });
+        menu.add(edit);
+        JMenuItem remove = new JMenuItem("删除自选股");
+        remove.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent action) {
+                if (JOptionPane.showConfirmDialog(table, "从自选中删除 " + code + "？", "删除自选股",
+                        JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) {
+                    return;
+                }
+                List<String> entries = loadStocks();
+                for (int i = entries.size() - 1; i >= 0; i--) {
+                    if (StockCodes.codeOf(entries.get(i)).equals(code)) {
+                        entries.remove(i);
+                    }
+                }
+                PropertiesComponent.getInstance().setValue("key_stocks", String.join(";\n", entries));
+                AlertManager.remove(code);
+                apply();
+            }
+        });
+        menu.add(remove);
+        JMenuItem rules = new JMenuItem("设置提醒规则");
+        rules.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent action) {
+                AlertRuleDialog.edit(table, code);
+            }
+        });
+        menu.add(rules);
+        JMenuItem mute = new JMenuItem("切换单股静音");
+        mute.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent action) {
+                StockAlertRule rule = AlertManager.load(code);
+                if (rule == null) {
+                    rule = new StockAlertRule();
+                    if (PropertiesComponent.getInstance().getBoolean(Consts.KEY_ALERT)) {
+                        rule.movementPoints = 2.0;
+                    }
+                }
+                rule.muted = !rule.muted;
+                AlertManager.save(code, rule);
+                JOptionPane.showMessageDialog(table, code + (rule.muted ? " 已静音" : " 已取消静音"));
+            }
+        });
+        menu.add(mute);
+        menu.addSeparator();
+        for (PopupsUiUtil.StockShowType type : PopupsUiUtil.StockShowType.values()) {
+            JMenuItem chart = new JMenuItem(type.getDesc());
+            chart.addActionListener(new ActionListener() {
+                @Override
+                public void actionPerformed(ActionEvent action) {
+                    showChart(code, type, event);
+                }
+            });
+            menu.add(chart);
+        }
+        menu.show(table, event.getX(), event.getY());
+    }
+
+    private static void editStock(String oldCode) {
+        String input = JOptionPane.showInputDialog(table,
+                "输入股票代码，例如 600519、sz000001、bj920001、hk00700", oldCode == null ? "" : oldCode);
+        if (input == null) {
+            return;
+        }
+        final String code;
+        try {
+            code = StockCodes.normalize(input);
+            StockCodes.replace(loadStocks(), oldCode, code);
+        } catch (IllegalArgumentException e) {
+            JOptionPane.showMessageDialog(table, e.getMessage(), "无法保存", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+        StockRefreshHandler editingHandler = handler;
+        String originalConfig = PropertiesComponent.getInstance().getValue("key_stocks");
+        refreshTimeLabel.setText("正在校验 " + code);
+        ApplicationManager.getApplication().executeOnPooledThread(new Runnable() {
+            @Override
+            public void run() {
+                String failure = null;
+                try {
+                    String response = HttpClientPool.getHttpClient().get("https://qt.gtimg.cn/q=" + code);
+                    HashMap<String, String[]> codes = new HashMap<>();
+                    codes.put(code, new String[]{code});
+                    if (QuoteParser.tencent(response, codes).isEmpty()) {
+                        throw new IllegalArgumentException("未查询到该股票，请检查代码");
+                    }
+                } catch (Exception e) {
+                    failure = "校验失败：" + e.getMessage();
+                }
+                String error = failure;
+                SwingUtilities.invokeLater(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (handler == null) {
+                            return;
+                        }
+                        if (handler != editingHandler || !Objects.equals(originalConfig,
+                                PropertiesComponent.getInstance().getValue("key_stocks"))) {
+                            JOptionPane.showMessageDialog(table, "自选列表已变化，请重新操作", "无法保存", JOptionPane.WARNING_MESSAGE);
+                            return;
+                        }
+                        if (error != null) {
+                            JOptionPane.showMessageDialog(table, error, "无法保存", JOptionPane.ERROR_MESSAGE);
+                            return;
+                        }
+                        try {
+                            List<String> entries = StockCodes.replace(loadStocks(), oldCode, code);
+                            PropertiesComponent.getInstance().setValue("key_stocks", String.join(";\n", entries));
+                            if (oldCode != null && !oldCode.equals(code)) {
+                                AlertManager.remove(oldCode);
+                            }
+                            apply();
+                        } catch (IllegalArgumentException e) {
+                            JOptionPane.showMessageDialog(table, e.getMessage(), "无法保存", JOptionPane.ERROR_MESSAGE);
+                        }
+                    }
+                });
             }
         });
     }
@@ -111,6 +240,9 @@ public class StockWindow {
     public StockWindow() {
 
         //切换接口
+        if (handler != null) {
+            handler.dispose();
+        }
         handler = factoryHandler();
 
         AnActionButton refreshAction = new AnActionButton("停止刷新当前表格数据", AllIcons.Actions.Pause) {
@@ -121,7 +253,13 @@ public class StockWindow {
             }
         };
         ToolbarDecorator toolbarDecorator = ToolbarDecorator.createDecorator(table)
-                .addExtraAction(new AnActionButton("持续刷新当前表格数据", AllIcons.Actions.Refresh) {
+                .addExtraAction(new AnActionButton("添加自选股", AllIcons.General.Add) {
+                    @Override
+                    public void actionPerformed(@NotNull AnActionEvent e) {
+                        editStock(null);
+                    }
+                })
+                .addExtraAction(new AnActionButton("刷新 / 重试并恢复自动刷新", AllIcons.Actions.Refresh) {
                     @Override
                     public void actionPerformed(@NotNull AnActionEvent e) {
                         refresh();
@@ -138,26 +276,20 @@ public class StockWindow {
         apply();
     }
 
-    private static StockRefreshHandler factoryHandler(){
-        boolean useSinaApi = PropertiesComponent.getInstance().getBoolean("key_stocks_sina");
-        if (useSinaApi){
-            if (handler instanceof SinaStockHandler){
-                return handler;
-            }
+    private static StockRefreshHandler factoryHandler() {
+        if (PropertiesComponent.getInstance().getBoolean("key_stocks_sina")) {
             return new SinaStockHandler(table, refreshTimeLabel);
         }
-        if (handler instanceof TencentStockHandler){
-            return handler;
-        }
-        return  new TencentStockHandler(table, refreshTimeLabel);
+        return new TencentStockHandler(table, refreshTimeLabel);
     }
 
     public static void apply() {
         if (handler != null) {
+            QuartzManager.getInstance(NAME).stopJob();
+            handler.dispose();
             handler = factoryHandler();
             PropertiesComponent instance = PropertiesComponent.getInstance();
             handler.setStriped(instance.getBoolean("key_table_striped"));
-            handler.clearRow();
             handler.setupTable(loadStocks());
             refresh();
         }
@@ -170,6 +302,7 @@ public class StockWindow {
             if (CollectionUtils.isEmpty(codes)) {
                 stop(); //如果没有数据则不需要启动时钟任务浪费资源
             } else {
+                handler.resume();
                 handler.handle(codes);
                 QuartzManager quartzManager = QuartzManager.getInstance(NAME);
                 HashMap<String, Object> dataMap = new HashMap<>();
@@ -191,22 +324,23 @@ public class StockWindow {
         }
     }
 
-    private static List<String> loadStocks(){
-//        return FundWindow.getConfigList("key_stocks", "[,，]");
-        List<String> keyStocks = SettingsWindow.getConfigList("key_stocks");
-        List<String> converted = new ArrayList<>(keyStocks.size());
-        for (String keyStock : keyStocks) {
-            if (keyStock.startsWith("6")) {
-                converted.add("sh" + keyStock);
-            } else if (keyStock.startsWith("0") || keyStock.startsWith("3")) {
-                converted.add("sz" + keyStock);
-            } else if (keyStock.startsWith("4") || keyStock.startsWith("8")) {
-                converted.add("bj" + keyStock);
-            } else {
-                converted.add(keyStock);
-            }
+    private static List<String> loadStocks() {
+        try {
+            return StockCodes.parse(PropertiesComponent.getInstance().getValue("key_stocks"));
+        } catch (IllegalArgumentException e) {
+            refreshTimeLabel.setText("自选配置无效：" + e.getMessage());
+            return new ArrayList<>();
         }
-        return converted;
     }
 
+    public void dispose() {
+        if (!SwingUtilities.isDescendingFrom(table, mPanel)) {
+            return;
+        }
+        stop();
+        if (handler != null) {
+            handler.dispose();
+            handler = null;
+        }
+    }
 }

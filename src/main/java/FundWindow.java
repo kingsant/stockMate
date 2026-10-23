@@ -1,38 +1,28 @@
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.util.PropertiesComponent;
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.ActionToolbarPosition;
 import com.intellij.openapi.actionSystem.AnActionEvent;
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.ui.popup.JBPopupFactory;
-import com.intellij.openapi.ui.popup.PopupStep;
-import com.intellij.openapi.ui.popup.util.BaseListPopupStep;
 import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowFactory;
 import com.intellij.ui.AnActionButton;
 import com.intellij.ui.ToolbarDecorator;
-import com.intellij.ui.awt.RelativePoint;
 import com.intellij.ui.content.Content;
 import com.intellij.ui.content.ContentFactory;
 import com.intellij.ui.content.ContentManager;
 import com.intellij.ui.table.JBTable;
-import com.jgoodies.common.base.Strings;
-import org.apache.commons.collections.CollectionUtils;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
-import quartz.HandlerJob;
 import quartz.QuartzManager;
 import utils.*;
 
-import javax.swing.*;
-import javax.swing.border.EmptyBorder;
 import java.awt.*;
-import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseMotionAdapter;
-import java.net.MalformedURLException;
-import java.util.List;
 import java.util.*;
+import java.util.List;
+import javax.swing.*;
+import javax.swing.border.EmptyBorder;
 
 public class FundWindow implements ToolWindowFactory {
     public static final String NAME = "Fund";
@@ -48,6 +38,12 @@ public class FundWindow implements ToolWindowFactory {
         //股票
         StockWindow stockWindow = new StockWindow();
         Content content_stock = contentFactory.createContent(stockWindow.getmPanel(), StockWindow.NAME, false);
+        content_stock.setDisposer(new Disposable() {
+            @Override
+            public void dispose() {
+                stockWindow.dispose();
+            }
+        });
         ContentManager contentManager = toolWindow.getContentManager();
         contentManager.addContent(content_stock);
         contentManager.setSelectedContent(content_stock);
