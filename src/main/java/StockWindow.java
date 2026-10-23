@@ -50,7 +50,6 @@ public class StockWindow implements StockRefreshService.Listener {
     }
 
     private void configureTable() {
-        refreshTimeLabel.setToolTipText("最后刷新时间");
         refreshTimeLabel.setBorder(new EmptyBorder(0, 0, 0, 5));
         //记录列名的变化
         table.getTableHeader().addMouseMotionListener(new MouseMotionAdapter() {
@@ -186,7 +185,6 @@ public class StockWindow implements StockRefreshService.Listener {
         }
         long editGeneration = service.getGeneration();
         String originalConfig = PropertiesComponent.getInstance().getValue("key_stocks");
-        refreshTimeLabel.setText("正在校验 " + code);
         service.validate(code, new StockRefreshService.ValidationCallback() {
             @Override
             public void completed(String error) {
@@ -270,8 +268,18 @@ public class StockWindow implements StockRefreshService.Listener {
             displayedQuotes = quotes;
             model.showQuotes(quotes);
         }
-        refreshTimeLabel.setText(status);
-        refreshTimeLabel.setToolTipText(status + "；60 秒未更新标记过期");
+        String oldestTime = null;
+        for (StockBean quote : quotes) {
+            String time = quote.getTime();
+            if (time != null && time.length() == 14 && (oldestTime == null || time.compareTo(oldestTime) < 0)) {
+                oldestTime = time;
+            }
+        }
+        String timeText = "--:--:--";
+        if (oldestTime != null) {
+            timeText = oldestTime.substring(8, 10) + ":" + oldestTime.substring(10, 12) + ":" + oldestTime.substring(12, 14);
+        }
+        refreshTimeLabel.setText(timeText);
         pauseAction.setEnabled(running);
     }
 
