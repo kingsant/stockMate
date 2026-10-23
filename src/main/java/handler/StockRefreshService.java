@@ -9,6 +9,7 @@ import com.intellij.openapi.components.Service;
 import org.quartz.CronExpression;
 import utils.HttpClientPool;
 import watchlist.StockCodes;
+import watchlist.StockSearch;
 
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -45,11 +46,20 @@ public final class StockRefreshService implements Disposable {
         void completed(String error);
     }
 
+    public interface SearchFetcher {
+        List<StockSearch.Result> fetch(String query) throws Exception;
+    }
+
+    public interface SearchCallback {
+        void completed(List<StockSearch.Result> results, String error);
+    }
+
     private final List<Listener> listeners = new ArrayList<>();
     private final List<CronExpression> schedules = new ArrayList<>();
     private final QuoteFetcher fetcher;
     private final Executor executor;
     private final AlertSink alerts;
+    private final SearchFetcher searchFetcher;
     private final Timer timer;
     private List<String> codes = List.of();
     private List<StockBean> quotes = List.of();
@@ -89,9 +99,19 @@ public final class StockRefreshService implements Disposable {
     }
 
     public StockRefreshService(QuoteFetcher fetcher, Executor executor, AlertSink alerts) {
+        this(fetcher, executor, alerts, new SearchFetcher() {
+            @Override
+            public List<StockSearch.Result> fetch(String query) throws Exception {
+                return StockSearch.fetch(query);
+            }
+        });
+    }
+
+    public StockRefreshService(QuoteFetcher fetcher, Executor executor, AlertSink alerts, SearchFetcher searchFetcher) {
         this.fetcher = fetcher;
         this.executor = executor;
         this.alerts = alerts;
+        this.searchFetcher = searchFetcher;
         timer = new Timer(1000, new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent event) {
@@ -189,15 +209,15 @@ public final class StockRefreshService implements Disposable {
         return generation;
     }
 
-    public void validate(String code, ValidationCallback callback) {
+    public void validate(List<String> requestedCodes, ValidationCallback callback) {
         requireEdt();
         boolean selectedSource = useSina;
+        List<String> requested = List.copyOf(requestedCodes);
         executor.execute(new Runnable() {
             @Override
             public void run() {
                 String error = null;
                 try {
-                    List<String> requested = List.of(code);
                     QuoteParser.validate(requested, fetcher.fetch(requested, selectedSource));
                 } catch (Exception e) {
                     error = "校验失败：" + failureMessage(e);
@@ -213,6 +233,65 @@ public final class StockRefreshService implements Disposable {
                 });
             }
         });
+    }
+
+    public SearchSession newSearchSession() {
+        requireEdt();
+        return new SearchSession();
+    }
+
+    public final class SearchSession implements AutoCloseable {
+        private volatile long revision;
+        private volatile boolean closed;
+
+        private SearchSession() {
+        }
+
+        public void invalidate() {
+            requireEdt();
+            revision++;
+        }
+
+        public void search(String input, SearchCallback callback) {
+            requireEdt();
+            String query = input.trim();
+            long requestRevision = ++revision;
+            if (closed || disposed || query.isEmpty()) {
+                return;
+            }
+            executor.execute(new Runnable() {
+                @Override
+                public void run() {
+                    if (closed || disposed || revision != requestRevision) {
+                        return;
+                    }
+                    List<StockSearch.Result> results = List.of();
+                    String failure = null;
+                    try {
+                        results = searchFetcher.fetch(query);
+                    } catch (Exception e) {
+                        failure = "搜索失败：" + failureMessage(e);
+                    }
+                    List<StockSearch.Result> response = List.copyOf(results);
+                    String error = failure;
+                    SwingUtilities.invokeLater(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (!closed && !disposed && revision == requestRevision) {
+                                callback.completed(response, error);
+                            }
+                        }
+                    });
+                }
+            });
+        }
+
+        @Override
+        public void close() {
+            requireEdt();
+            closed = true;
+            revision++;
+        }
     }
 
     private void requestRefresh() {

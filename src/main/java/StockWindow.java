@@ -21,7 +21,6 @@ import java.awt.event.MouseEvent;
 import java.awt.event.MouseMotionAdapter;
 import java.net.MalformedURLException;
 import java.util.List;
-import java.util.Objects;
 
 import javax.swing.JButton;
 import javax.swing.JLabel;
@@ -44,6 +43,7 @@ public class StockWindow implements StockRefreshService.Listener {
     private final JButton pauseAction = new JButton(AllIcons.Actions.Pause);
     private List<StockBean> displayedQuotes;
     private boolean disposed;
+    private StockInputPanel inputPanel;
 
     public JPanel getmPanel() {
         return mPanel;
@@ -170,49 +170,13 @@ public class StockWindow implements StockRefreshService.Listener {
     }
 
     private void editStock(String oldCode) {
-        String input = JOptionPane.showInputDialog(table,
-                "输入股票代码，例如 600519、sz000001、bj920001、hk00700", oldCode == null ? "" : oldCode);
-        if (input == null) {
-            return;
-        }
-        final String code;
+        StockInputPanel panel = new StockInputPanel(service, oldCode);
+        inputPanel = panel;
         try {
-            code = StockCodes.normalize(input);
-            StockCodes.replace(StockCodes.parse(PropertiesComponent.getInstance().getValue("key_stocks")), oldCode, code);
-        } catch (IllegalArgumentException e) {
-            JOptionPane.showMessageDialog(table, e.getMessage(), "无法保存", JOptionPane.ERROR_MESSAGE);
-            return;
+            panel.open(table);
+        } finally {
+            inputPanel = null;
         }
-        long editGeneration = service.getGeneration();
-        String originalConfig = PropertiesComponent.getInstance().getValue("key_stocks");
-        service.validate(code, new StockRefreshService.ValidationCallback() {
-            @Override
-            public void completed(String error) {
-                if (disposed) {
-                    return;
-                }
-                if (service.getGeneration() != editGeneration || !Objects.equals(originalConfig,
-                        PropertiesComponent.getInstance().getValue("key_stocks"))) {
-                    JOptionPane.showMessageDialog(table, "自选列表已变化，请重新操作", "无法保存", JOptionPane.WARNING_MESSAGE);
-                    return;
-                }
-                if (error != null) {
-                    JOptionPane.showMessageDialog(table, error, "无法保存", JOptionPane.ERROR_MESSAGE);
-                    return;
-                }
-                try {
-                    List<String> entries = StockCodes.replace(
-                            StockCodes.parse(PropertiesComponent.getInstance().getValue("key_stocks")), oldCode, code);
-                    PropertiesComponent.getInstance().setValue("key_stocks", String.join(";\n", entries));
-                    if (oldCode != null && !oldCode.equals(code)) {
-                        AlertManager.remove(oldCode);
-                    }
-                    service.reload();
-                } catch (IllegalArgumentException e) {
-                    JOptionPane.showMessageDialog(table, e.getMessage(), "无法保存", JOptionPane.ERROR_MESSAGE);
-                }
-            }
-        });
     }
 
     public StockWindow() {
@@ -290,6 +254,9 @@ public class StockWindow implements StockRefreshService.Listener {
     public void dispose() {
         if (!disposed) {
             disposed = true;
+            if (inputPanel != null) {
+                inputPanel.close();
+            }
             service.unsubscribe(this);
         }
     }

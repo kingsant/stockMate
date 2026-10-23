@@ -5,6 +5,25 @@ import java.util.List;
 import static org.junit.Assert.*;
 
 public class StockCodesTest {
+    @Test
+    public void parsesBatchLinesAndAppendsOnlyNewCodesInOrder() {
+        List<String> codes = StockCodes.parseLines(" 600519 \r\n\r\n SZ000001\nsh600519\n920001 ");
+
+        assertEquals(List.of("sh600519", "sz000001", "bj920001"), codes);
+        assertEquals(List.of("sh600519,123,100", "sz000001", "bj920001"),
+                StockCodes.append(List.of("sh600519,123,100"), codes));
+    }
+
+    @Test
+    public void invalidBatchReportsOriginalLineNumber() {
+        try {
+            StockCodes.parseLines("600519\n\ninvalid");
+            fail("Invalid input must not be partially accepted");
+        } catch (IllegalArgumentException e) {
+            assertTrue(e.getMessage().contains("第 3 行"));
+        }
+    }
+
     @Test(expected = IllegalArgumentException.class)
     public void rejectsInvalidExistingListInsteadOfTreatingItAsEmpty() {
         StockCodes.parse("sh600519;badcode;sz000001");

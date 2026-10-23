@@ -10,6 +10,7 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.util.Disposer;
 import org.junit.Test;
 import support.MemoryProperties;
+import watchlist.StockSearch;
 
 import java.awt.SecondaryLoop;
 import java.awt.Toolkit;
@@ -113,7 +114,7 @@ public class RefreshLifecycleTest {
                 View view = new View();
                 List<String> validationResults = new ArrayList<>();
                 fixture.service.subscribe(view);
-                fixture.service.validate("sz000001", new StockRefreshService.ValidationCallback() {
+                fixture.service.validate(List.of("sz000001"), new StockRefreshService.ValidationCallback() {
                     @Override
                     public void completed(String error) {
                         validationResults.add(error);
@@ -129,6 +130,70 @@ public class RefreshLifecycleTest {
                 assertNull(validationResults.get(0));
                 assertEquals("sh600000", view.quotes.get(0).getCode());
                 assertEquals(1, fixture.alerts.size());
+            }
+        });
+    }
+
+    @Test
+    public void staleSearchesAreSkippedAndClosedSessionsDoNotPublish() throws Exception {
+        withService(new Scenario() {
+            @Override
+            public void run(Fixture fixture) {
+                List<String> completed = new ArrayList<>();
+                StockRefreshService.SearchCallback callback = new StockRefreshService.SearchCallback() {
+                    @Override
+                    public void completed(List<StockSearch.Result> results, String error) {
+                        completed.add(results.get(0).pinyin());
+                    }
+                };
+                StockRefreshService.SearchSession session = fixture.service.newSearchSession();
+                session.search("old", callback);
+                session.search("gz", callback);
+                fixture.completeRequest();
+                assertTrue(fixture.searchQueries.isEmpty());
+                fixture.tasks.remove(0).run();
+                session.invalidate();
+                session.search("gzmt", callback);
+                fixture.flushEvents();
+                assertTrue(completed.isEmpty());
+                fixture.completeRequest();
+                assertEquals(List.of("gzmt"), completed);
+                session.search("cancelled", callback);
+                session.close();
+                fixture.completeRequest();
+                assertEquals(List.of("gz", "gzmt"), fixture.searchQueries);
+                assertEquals(1, completed.size());
+            }
+        });
+    }
+
+    @Test
+    public void batchValidationAndSearchUseTheSharedRequestQueue() throws Exception {
+        withService(new Scenario() {
+            @Override
+            public void run(Fixture fixture) {
+                List<String> validationResults = new ArrayList<>();
+                fixture.service.subscribe(new View());
+                fixture.service.validate(List.of("sz000001", "sh600519"), new StockRefreshService.ValidationCallback() {
+                    @Override
+                    public void completed(String error) {
+                        validationResults.add(error);
+                    }
+                });
+                fixture.service.newSearchSession().search("gzmt", new StockRefreshService.SearchCallback() {
+                    @Override
+                    public void completed(List<StockSearch.Result> results, String error) {
+                        assertNull(error);
+                    }
+                });
+                assertEquals(3, fixture.tasks.size());
+                fixture.completeRequest();
+                fixture.completeRequest();
+                fixture.completeRequest();
+                assertEquals(1, validationResults.size());
+                assertNull(validationResults.get(0));
+                assertEquals(1, fixture.alerts.size());
+                assertEquals(List.of("gzmt"), fixture.searchQueries);
             }
         });
     }
@@ -192,6 +257,7 @@ public class RefreshLifecycleTest {
         private final MemoryProperties properties = new MemoryProperties();
         private final List<Runnable> tasks = new ArrayList<>();
         private final List<StockBean> alerts = new ArrayList<>();
+        private final List<String> searchQueries = new ArrayList<>();
         private final StockRefreshService service;
 
         private Fixture() {
@@ -200,10 +266,14 @@ public class RefreshLifecycleTest {
             service = new StockRefreshService(new StockRefreshService.QuoteFetcher() {
                 @Override
                 public List<StockBean> fetch(List<String> codes, boolean sina) {
-                    StockBean bean = new StockBean(codes.get(0));
-                    bean.setNow("10");
-                    bean.setTime("20261023100000");
-                    return List.of(bean);
+                    List<StockBean> quotes = new ArrayList<>();
+                    for (String code : codes) {
+                        StockBean bean = new StockBean(code);
+                        bean.setNow("10");
+                        bean.setTime("20261023100000");
+                        quotes.add(bean);
+                    }
+                    return quotes;
                 }
             }, new Executor() {
                 @Override
@@ -215,11 +285,21 @@ public class RefreshLifecycleTest {
                 public void accept(StockBean quote) {
                     alerts.add(quote);
                 }
+            }, new StockRefreshService.SearchFetcher() {
+                @Override
+                public List<StockSearch.Result> fetch(String query) {
+                    searchQueries.add(query);
+                    return List.of(new StockSearch.Result("sh600519", "贵州茅台", query));
+                }
             });
         }
 
         private void completeRequest() {
             tasks.remove(0).run();
+            flushEvents();
+        }
+
+        private void flushEvents() {
             // 在当前 EDT 测试中处理真实异步完成事件。
             SecondaryLoop loop = Toolkit.getDefaultToolkit().getSystemEventQueue().createSecondaryLoop();
             SwingUtilities.invokeLater(new Runnable() {

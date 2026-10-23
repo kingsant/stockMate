@@ -12,7 +12,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -26,7 +26,7 @@ public final class QuoteParser {
     }
 
     public static LocalDateTime validate(List<String> entries, List<StockBean> quotes) {
-        Set<String> expected = new HashSet<>();
+        Set<String> expected = new LinkedHashSet<>();
         for (String entry : entries) {
             expected.add(StockCodes.codeOf(entry));
         }
@@ -41,7 +41,7 @@ public final class QuoteParser {
             }
         }
         if (!expected.isEmpty() || oldest == null) {
-            throw new IllegalArgumentException("部分股票无行情，请检查代码或切换数据源");
+            throw new IllegalArgumentException("以下代码无行情：" + String.join("、", expected) + "，请检查代码或切换数据源");
         }
         return oldest;
     }

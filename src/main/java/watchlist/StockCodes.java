@@ -103,4 +103,39 @@ public final class StockCodes {
         }
         return result;
     }
+
+    public static List<String> parseLines(String input) {
+        Map<String, String> codes = new LinkedHashMap<>();
+        String[] lines = input.split("\\R", -1);
+        for (int i = 0; i < lines.length; i++) {
+            if (lines[i].isBlank()) {
+                continue;
+            }
+            try {
+                String code = normalize(lines[i]);
+                codes.putIfAbsent(code, code);
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException("第 " + (i + 1) + " 行：" + e.getMessage());
+            }
+            if (codes.size() > 100) {
+                throw new IllegalArgumentException("一次最多输入 100 只股票");
+            }
+        }
+        if (codes.isEmpty()) {
+            throw new IllegalArgumentException("请输入至少一个股票代码");
+        }
+        return new ArrayList<>(codes.values());
+    }
+
+    public static List<String> append(List<String> entries, List<String> codes) {
+        Map<String, String> merged = new LinkedHashMap<>();
+        for (String entry : entries) {
+            merged.put(codeOf(entry), entry);
+        }
+        for (String code : codes) {
+            String normalized = normalize(code);
+            merged.putIfAbsent(normalized, normalized);
+        }
+        return new ArrayList<>(merged.values());
+    }
 }
