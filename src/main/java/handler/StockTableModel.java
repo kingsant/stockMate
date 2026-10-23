@@ -1,9 +1,7 @@
 package handler;
 
-import alert.AlertManager;
 import bean.StockBean;
 import com.intellij.ide.util.PropertiesComponent;
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.table.JBTable;
 import com.jgoodies.common.base.Strings;
@@ -15,25 +13,18 @@ import utils.WindowUtils;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.FontMetrics;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Vector;
-import javax.swing.JLabel;
+
 import javax.swing.JTable;
-import javax.swing.SwingUtilities;
-import javax.swing.Timer;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableRowSorter;
 
-public abstract class StockRefreshHandler extends DefaultTableModel {
-    private static String[] columnNames;
+public class StockTableModel extends DefaultTableModel {
+    private final String[] columnNames;
     /**
      * 存放【编码】的位置，更新数据时用到
      */
@@ -41,16 +32,8 @@ public abstract class StockRefreshHandler extends DefaultTableModel {
 
     private JTable table;
     private boolean colorful = true;
-    private final JLabel statusLabel;
-    private final RefreshStatus status = new RefreshStatus();
-    private final Timer statusTimer;
-    private long generation;
-    private boolean paused = true;
-    private boolean disposed;
-    private boolean loading;
-    private List<String> activeCodes = new ArrayList<>();
 
-    static {
+    public StockTableModel(JTable table) {
         PropertiesComponent instance = PropertiesComponent.getInstance();
         String tableHeaderValue = instance.getValue(WindowUtils.STOCK_TABLE_HEADER_KEY);
         if (Strings.isBlank(tableHeaderValue)) {
@@ -63,18 +46,13 @@ public abstract class StockRefreshHandler extends DefaultTableModel {
         for (int i = 0; i < configStr.length; i++) {
             columnNames[i] = WindowUtils.remapPinYin(configStr[i]);
         }
-    }
 
-    {
         for (int i = 0; i < columnNames.length; i++) {
             if ("编码".equals(columnNames[i])) {
                 codeColumnIndex = i;
             }
         }
-    }
 
-    public StockRefreshHandler(JTable table, JLabel statusLabel) {
-        this.statusLabel = statusLabel;
         this.table = table;
         table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
         // Fix tree row height
@@ -82,13 +60,6 @@ public abstract class StockRefreshHandler extends DefaultTableModel {
         table.setRowHeight(Math.max(table.getRowHeight(), metrics.getHeight()));
         table.setModel(this);
         refreshColorful(!colorful);
-        statusTimer = new Timer(1000, new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent event) {
-                showStatus();
-            }
-        });
-        statusTimer.start();
     }
 
     public void refreshColorful(boolean colorful) {
@@ -121,88 +92,22 @@ public abstract class StockRefreshHandler extends DefaultTableModel {
         columnColors(colorful);
     }
 
-    /**
-     * 从网络更新数据
-     *
-     * @param code
-     */
-    public final void handle(List<String> codes) {
-        List<String> requestCodes = new ArrayList<>(codes);
-        SwingUtilities.invokeLater(new Runnable() {
-            @Override
-            public void run() {
-                if (disposed || paused || loading || !activeCodes.equals(requestCodes)) {
-                    return;
+    public void showQuotes(List<StockBean> quotes) {
+        boolean sameRows = getRowCount() == quotes.size();
+        if (sameRows) {
+            for (int i = 0; i < quotes.size(); i++) {
+                if (!quotes.get(i).getCode().equals(getValueAt(i, codeColumnIndex))) {
+                    sameRows = false;
+                    break;
                 }
-                loading = true;
-                long requestGeneration = generation;
-                showStatus();
-                ApplicationManager.getApplication().executeOnPooledThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        List<StockBean> result = null;
-                        String failure = null;
-                        LocalDateTime oldest = null;
-                        try {
-                            result = fetch(requestCodes);
-                            oldest = QuoteParser.validate(requestCodes, result);
-                        } catch (Exception e) {
-                            failure = e.getMessage();
-                            if (failure == null || failure.isBlank()) {
-                                failure = e.getClass().getSimpleName();
-                            }
-                        }
-                        List<StockBean> quotes = result;
-                        String error = failure;
-                        LocalDateTime oldestQuote = oldest;
-                        SwingUtilities.invokeLater(new Runnable() {
-                            @Override
-                            public void run() {
-                                if (disposed || paused || requestGeneration != generation) {
-                                    return;
-                                }
-                                loading = false;
-                                if (error != null) {
-                                    status.fail(error);
-                                } else {
-                                    for (StockBean quote : quotes) {
-                                        updateData(quote);
-                                    }
-                                    status.succeed(LocalDateTime.now(ZoneId.of("Asia/Shanghai")), oldestQuote);
-                                }
-                                showStatus();
-                            }
-                        });
-                    }
-                });
             }
-        });
-    }
-
-    protected abstract List<StockBean> fetch(List<String> codes) throws Exception;
-
-    public final void resume() {
-        paused = false;
-        showStatus();
-    }
-
-    public final void dispose() {
-        stopHandle();
-        disposed = true;
-        statusTimer.stop();
-    }
-
-    private void showStatus() {
-        String text = status.describe(LocalDateTime.now(ZoneId.of("Asia/Shanghai")));
-        if (activeCodes.isEmpty()) {
-            text = "暂无自选股";
-        } else if (paused) {
-            text = "已暂停 | " + text;
-        } else if (loading) {
-            text = "刷新中 | " + text;
         }
-        statusLabel.setText(text);
-        statusLabel.setToolTipText(text + "；点击刷新按钮重试；60 秒未更新标记过期");
+        if (!sameRows) {
+            clearRow();
+        }
+        for (StockBean quote : quotes) {
+            updateData(quote);
+        }
     }
 
     /**
@@ -217,23 +122,6 @@ public abstract class StockRefreshHandler extends DefaultTableModel {
         } else {
             throw new RuntimeException("table不是JBTable类型，请自行实现setStriped");
         }
-    }
-
-    public void setupTable(List<String> code) {
-        activeCodes = new ArrayList<>(code);
-        for (String s : code) {
-            updateData(new StockBean(s));
-        }
-    }
-
-    /**
-     * 停止从网络更新数据
-     */
-    public final void stopHandle() {
-        paused = true;
-        generation++;
-        loading = false;
-        showStatus();
     }
 
     private void columnColors(boolean colorful) {
@@ -288,8 +176,6 @@ public abstract class StockRefreshHandler extends DefaultTableModel {
         } else {
             addRow(convertData);
         }
-        //toast
-        AlertManager.recordPriceAndAlert(bean);
     }
 
     /**

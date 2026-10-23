@@ -3,20 +3,16 @@ package handler;
 import bean.StockBean;
 import utils.HttpClientPool;
 
-import javax.swing.JLabel;
-import javax.swing.JTable;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class TencentStockHandler extends StockRefreshHandler {
-    public TencentStockHandler(JTable table, JLabel label) {
-        super(table, label);
+public final class TencentStockHandler {
+    private TencentStockHandler() {
     }
 
-    @Override
-    protected List<StockBean> fetch(List<String> entries) throws Exception {
+    public static List<StockBean> fetch(List<String> entries) throws Exception {
         List<String> codes = new ArrayList<>();
         Map<String, String[]> codeMap = new HashMap<>();
         for (String entry : entries) {
