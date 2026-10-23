@@ -1,10 +1,10 @@
 <idea-plugin>
     <id>com.jpc.uka</id>
-    <name>uka</name>
+    <name>sMate</name>
     <vendor email="" url="">huage2580</vendor>
 
     <description><![CDATA[
-     知行合一
+     sMate is your stock market companion in the IDE.
     ]]></description>
 
     <!-- please see http://www.jetbrains.org/intellij/sdk/docs/basics/getting_started/plugin_compatibility.html
@@ -14,8 +14,9 @@
     <extensions defaultExtensionNs="com.intellij">
         <!-- Add your extensions here -->
         <toolWindow anchor="bottom" id="uka" factoryClass="FundWindow"/>
-        <applicationConfigurable id="uka_settings" displayName="uka" instance="SettingsWindow"/>
-        <notificationGroup id="uka Notification Group" displayType="BALLOON"/>
+        <applicationConfigurable id="uka_settings" displayName="sMate" instance="SettingsWindow"/>
+        <notificationGroup id="uka Notification Group" displayType="BALLOON"
+                           bundle="messages.SMateBundle" key="notification.group.smate"/>
     </extensions>
 
     <actions>

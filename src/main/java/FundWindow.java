@@ -9,6 +9,12 @@ import utils.LogUtil;
 
 public class FundWindow implements ToolWindowFactory {
     @Override
+    public void init(@NotNull ToolWindow toolWindow) {
+        toolWindow.setTitle(StockWindow.NAME);
+        toolWindow.setStripeTitle(StockWindow.NAME);
+    }
+
+    @Override
     public void createToolWindowContent(@NotNull Project project, @NotNull ToolWindow toolWindow) {
         LogUtil.setProject(project);
         StockWindow window = new StockWindow();

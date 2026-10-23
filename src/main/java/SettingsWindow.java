@@ -38,7 +38,7 @@ public class SettingsWindow  implements Configurable {
 
     @Override
     public @Nls(capitalization = Nls.Capitalization.Title) String getDisplayName() {
-        return "uka";
+        return "sMate";
     }
 
     @Override

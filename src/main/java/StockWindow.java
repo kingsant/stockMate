@@ -35,7 +35,7 @@ import javax.swing.SwingUtilities;
 import javax.swing.border.EmptyBorder;
 
 public class StockWindow implements StockRefreshService.Listener {
-    public static final String NAME = "sk";
+    public static final String NAME = "sMate";
     private final JPanel mPanel = new JPanel(new BorderLayout());
     private final StockRefreshService service;
     private final StockTableModel model;

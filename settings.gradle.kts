@@ -5,4 +5,4 @@ pluginManagement {
     }
 }
 
-rootProject.name = "uka"
+rootProject.name = "sMate"
