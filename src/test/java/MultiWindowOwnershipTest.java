@@ -7,6 +7,7 @@ import com.intellij.openapi.util.Disposer;
 import handler.StockRefreshService;
 import org.junit.Test;
 import support.MemoryProperties;
+import utils.WindowUtils;
 
 import java.awt.Component;
 import java.awt.Container;
@@ -71,8 +72,8 @@ public class MultiWindowOwnershipTest {
             SwingUtilities.invokeAndWait(new Runnable() {
                 @Override
                 public void run() {
-                    assertEquals("10", findTable(windows[0].getmPanel()).getModel().getValueAt(0, 6));
-                    assertEquals("10", findTable(windows[1].getmPanel()).getModel().getValueAt(0, 6));
+                    assertEquals("10", currentPrice(findTable(windows[0].getmPanel())));
+                    assertEquals("10", currentPrice(findTable(windows[1].getmPanel())));
                     windows[0].dispose();
                     service.refresh();
                     assertEquals(1, tasks.size());
@@ -103,5 +104,14 @@ public class MultiWindowOwnershipTest {
             }
         }
         return null;
+    }
+
+    private static Object currentPrice(JTable table) {
+        for (int i = 0; i < table.getModel().getColumnCount(); i++) {
+            if (WindowUtils.remapPinYin(table.getModel().getColumnName(i)).equals("当前价")) {
+                return table.getModel().getValueAt(0, i);
+            }
+        }
+        throw new AssertionError("当前价列不存在");
     }
 }

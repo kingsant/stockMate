@@ -1,6 +1,8 @@
 package utils;
 
 import java.util.HashMap;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 /**
  * @Created by DAIE
@@ -10,34 +12,19 @@ import java.util.HashMap;
 public class WindowUtils {
     //股票表头
     public static final String STOCK_TABLE_HEADER_KEY = "stock_table_header_key2"; //移动表头时存储的key
-    public static final String STOCK_TABLE_HEADER_VALUE = "编码,股票名称,涨跌,涨跌幅,最高价,最低价,当前价,成本价,持仓,收益率,收益,更新时间";
+    public static final String STOCK_TABLE_HEADER_VALUE = "编码,股票名称,涨跌幅,最高价,最低价,当前价,更新时间";
 
-    private static HashMap<String,String> remapPinYinMap = new HashMap<>();
+    private static final HashMap<String, String> remapPinYinMap = new HashMap<>();
 
     static {
         remapPinYinMap.put(PinYinUtils.toPinYin("编码"), "编码");
-        remapPinYinMap.put(PinYinUtils.toPinYin("基金名称"), "基金名称");
-        remapPinYinMap.put(PinYinUtils.toPinYin("估算净值"), "估算净值");
-        remapPinYinMap.put(PinYinUtils.toPinYin("估算涨跌"), "估算涨跌");
         remapPinYinMap.put(PinYinUtils.toPinYin("更新时间"), "更新时间");
-        remapPinYinMap.put(PinYinUtils.toPinYin("当日净值"), "当日净值");
         remapPinYinMap.put(PinYinUtils.toPinYin("股票名称"), "股票名称");
         remapPinYinMap.put(PinYinUtils.toPinYin("当前价"), "当前价");
-        remapPinYinMap.put(PinYinUtils.toPinYin("涨跌"), "涨跌");
         remapPinYinMap.put(PinYinUtils.toPinYin("涨跌幅"), "涨跌幅");
         remapPinYinMap.put(PinYinUtils.toPinYin("最高价"), "最高价");
         remapPinYinMap.put(PinYinUtils.toPinYin("最低价"), "最低价");
-        remapPinYinMap.put(PinYinUtils.toPinYin("名称"), "名称");
-
-        remapPinYinMap.put(PinYinUtils.toPinYin("成本价"), "成本价");
-        remapPinYinMap.put(PinYinUtils.toPinYin("持仓"), "持仓");
-        remapPinYinMap.put(PinYinUtils.toPinYin("收益率"), "收益率");
-        remapPinYinMap.put(PinYinUtils.toPinYin("收益"), "收益");
-
-        remapPinYinMap.put(PinYinUtils.toPinYin("持仓成本价"), "持仓成本价");
-        remapPinYinMap.put(PinYinUtils.toPinYin("持有份额"), "持有份额");
     }
-
 
     /**
      * 通过列名 获取该TABLE的列的数组下标
@@ -52,8 +39,6 @@ public class WindowUtils {
                 return i;
             }
         }
-        //考虑拼音编码
-
         return -1;
     }
 
@@ -61,5 +46,21 @@ public class WindowUtils {
         return remapPinYinMap.getOrDefault(pinyin, pinyin);
     }
 
-
+    public static String[] normalizeStockColumns(String savedColumns) {
+        Set<String> allowedColumns = new LinkedHashSet<>();
+        for (String name : STOCK_TABLE_HEADER_VALUE.split(",")) {
+            allowedColumns.add(name);
+        }
+        Set<String> columns = new LinkedHashSet<>();
+        if (savedColumns != null) {
+            for (String name : savedColumns.split(",")) {
+                String column = remapPinYin(name.trim());
+                if (allowedColumns.contains(column)) {
+                    columns.add(column);
+                }
+            }
+        }
+        columns.addAll(allowedColumns);
+        return columns.toArray(new String[0]);
+    }
 }

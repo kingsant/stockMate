@@ -227,7 +227,7 @@ public class StockWindow implements StockRefreshService.Listener {
     public void updated(List<StockBean> quotes, String status, boolean running) {
         PropertiesComponent properties = PropertiesComponent.getInstance();
         model.setStriped(properties.getBoolean("key_table_striped"));
-        model.refreshColorful(properties.getBoolean("key_colorful"));
+        model.refreshDisplay(properties.getBoolean("key_colorful"));
         if (displayedQuotes != quotes) {
             displayedQuotes = quotes;
             model.showQuotes(quotes);

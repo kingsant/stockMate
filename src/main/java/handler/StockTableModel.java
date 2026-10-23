@@ -2,24 +2,18 @@ package handler;
 
 import bean.StockBean;
 import com.intellij.ide.util.PropertiesComponent;
-import com.intellij.ui.JBColor;
 import com.intellij.ui.table.JBTable;
-import com.jgoodies.common.base.Strings;
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang.math.NumberUtils;
 import utils.PinYinUtils;
 import utils.WindowUtils;
 
-import java.awt.Color;
-import java.awt.Component;
 import java.awt.FontMetrics;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Objects;
 import java.util.Vector;
 
 import javax.swing.JTable;
-import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableRowSorter;
 
@@ -31,21 +25,12 @@ public class StockTableModel extends DefaultTableModel {
     public int codeColumnIndex;
 
     private JTable table;
-    private boolean colorful = true;
+    private boolean normalMode = true;
 
     public StockTableModel(JTable table) {
         PropertiesComponent instance = PropertiesComponent.getInstance();
-        String tableHeaderValue = instance.getValue(WindowUtils.STOCK_TABLE_HEADER_KEY);
-        if (Strings.isBlank(tableHeaderValue)) {
-            instance.setValue(WindowUtils.STOCK_TABLE_HEADER_KEY, WindowUtils.STOCK_TABLE_HEADER_VALUE);
-            tableHeaderValue = WindowUtils.STOCK_TABLE_HEADER_VALUE;
-        }
-
-        String[] configStr = tableHeaderValue.split(",");
-        columnNames = new String[configStr.length];
-        for (int i = 0; i < configStr.length; i++) {
-            columnNames[i] = WindowUtils.remapPinYin(configStr[i]);
-        }
+        columnNames = WindowUtils.normalizeStockColumns(instance.getValue(WindowUtils.STOCK_TABLE_HEADER_KEY));
+        instance.setValue(WindowUtils.STOCK_TABLE_HEADER_KEY, String.join(",", columnNames));
 
         for (int i = 0; i < columnNames.length; i++) {
             if ("编码".equals(columnNames[i])) {
@@ -59,16 +44,16 @@ public class StockTableModel extends DefaultTableModel {
         FontMetrics metrics = table.getFontMetrics(table.getFont());
         table.setRowHeight(Math.max(table.getRowHeight(), metrics.getHeight()));
         table.setModel(this);
-        refreshColorful(!colorful);
+        refreshDisplay(!normalMode);
     }
 
-    public void refreshColorful(boolean colorful) {
-        if (this.colorful == colorful) {
+    public void refreshDisplay(boolean normalMode) {
+        if (this.normalMode == normalMode) {
             return;
         }
-        this.colorful = colorful;
+        this.normalMode = normalMode;
         // 刷新表头
-        if (colorful) {
+        if (normalMode) {
             setColumnIdentifiers(columnNames);
         } else {
             setColumnIdentifiers(PinYinUtils.toPinYin(columnNames));
@@ -82,14 +67,13 @@ public class StockTableModel extends DefaultTableModel {
                 return firstValue.compareTo(secondValue);
             }
         };
-        for (String name : new String[]{"当前价", "涨跌", "涨跌幅", "最高价", "最低价"}) {
+        for (String name : new String[]{"当前价", "涨跌幅", "最高价", "最低价"}) {
             int index = WindowUtils.getColumnIndexByName(columnNames, name);
             if (index >= 0) {
                 rowSorter.setComparator(index, doubleComparator);
             }
         }
         table.setRowSorter(rowSorter);
-        columnColors(colorful);
     }
 
     public void showQuotes(List<StockBean> quotes) {
@@ -122,43 +106,6 @@ public class StockTableModel extends DefaultTableModel {
         } else {
             throw new RuntimeException("table不是JBTable类型，请自行实现setStriped");
         }
-    }
-
-    private void columnColors(boolean colorful) {
-        DefaultTableCellRenderer cellRenderer = new DefaultTableCellRenderer() {
-            @Override
-            public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
-                double temp = NumberUtils.toDouble(StringUtils.remove(Objects.toString(value), "%"));
-                if (temp > 0) {
-                    if (colorful) {
-                        setForeground(JBColor.RED);
-                    } else {
-                        setForeground(JBColor.DARK_GRAY);
-                    }
-                } else if (temp < 0) {
-                    if (colorful) {
-                        setForeground(JBColor.GREEN);
-                    } else {
-                        setForeground(JBColor.GRAY);
-                    }
-                } else {
-                    Color orgin = getForeground();
-                    setForeground(orgin);
-                }
-                return super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-            }
-        };
-        int columnIndex1 = WindowUtils.getColumnIndexByName(columnNames, "涨跌");
-        int columnIndex2 = WindowUtils.getColumnIndexByName(columnNames, "涨跌幅");
-
-        int columnIndex3 = WindowUtils.getColumnIndexByName(columnNames, "收益率");
-        int columnIndex4 = WindowUtils.getColumnIndexByName(columnNames, "收益");
-
-        table.getColumn(getColumnName(columnIndex1)).setCellRenderer(cellRenderer);
-        table.getColumn(getColumnName(columnIndex2)).setCellRenderer(cellRenderer);
-
-        table.getColumn(getColumnName(columnIndex3)).setCellRenderer(cellRenderer);
-        table.getColumn(getColumnName(columnIndex4)).setCellRenderer(cellRenderer);
     }
 
     protected void updateData(StockBean bean) {
@@ -227,7 +174,7 @@ public class StockTableModel extends DefaultTableModel {
         // 与columnNames中的元素保持一致
         Vector<Object> v = new Vector<Object>(columnNames.length);
         for (int i = 0; i < columnNames.length; i++) {
-            v.addElement(stockBean.getValueByColumn(columnNames[i], colorful));
+            v.addElement(stockBean.getValueByColumn(columnNames[i], normalMode));
         }
         return v;
     }

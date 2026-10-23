@@ -8,6 +8,29 @@ import java.util.Map;
 import static org.junit.Assert.*;
 
 public class QuoteParserTest {
+    @Test
+    public void ignoresLegacyHoldingFieldsFromBothProviders() {
+        String[] tencentFields = new String[35];
+        Arrays.fill(tencentFields, "0");
+        tencentFields[1] = "测试股票";
+        tencentFields[3] = "10";
+        tencentFields[30] = "20261023110000";
+        Map<String, String[]> configuration = Map.of("sh600000", new String[]{"sh600000", "bad-cost", "bad-quantity"});
+        String[] sinaFields = new String[32];
+        Arrays.fill(sinaFields, "0");
+        sinaFields[0] = "测试股票";
+        sinaFields[2] = "10";
+        sinaFields[3] = "11";
+        sinaFields[30] = "2026-10-23";
+        sinaFields[31] = "11:00:05";
+
+        List<StockBean> tencent = QuoteParser.tencent("v_sh600000=\"" + String.join("~", tencentFields) + "\";", configuration);
+        List<StockBean> sina = QuoteParser.sina("var hq_str_sh600000=\"" + String.join(",", sinaFields) + "\";", configuration);
+
+        assertEquals("10", tencent.get(0).getNow());
+        assertEquals("11", sina.get(0).getNow());
+    }
+
     @Test(expected = IllegalArgumentException.class)
     public void rejectsStockUnavailableFromSelectedProvider() {
         List<StockBean> quotes = QuoteParser.sina("var hq_str_hk00700=\"\";",
